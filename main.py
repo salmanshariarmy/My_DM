@@ -5,8 +5,9 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 import yt_dlp
 import pyperclip
 import urllib.request
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 import time
+import re
 
 class ProfessionalIDM:
     def __init__(self, root):
@@ -137,15 +138,23 @@ class ProfessionalIDM:
             file_size_str = response.getheader('Content-Length')
             file_size = int(file_size_str) if file_size_str else 0
             
-            # Try to get real filename from server
             cd = response.getheader('Content-Disposition')
+            filename = ""
+            
             if cd and 'filename=' in cd:
-                filename = cd.split('filename=')[1].strip('"\'; ')
-            else:
+                # Update: Better parsing to avoid trailing data
+                raw_name = cd.split('filename=')[1].split(';')[0].strip(' "\'')
+                filename = unquote(raw_name)
+                
+            if not filename:
                 filename = os.path.basename(urlparse(url).path)
-                if not filename or len(filename) > 50:
-                    filename = f"file_{item_id}_{int(time.time())}.dat"
-                    
+                
+            if not filename or len(filename) > 100:
+                filename = f"download_{item_id}_{int(time.time())}.dat"
+                
+            # CRITICAL UPDATE: Sanitize filename for Windows!
+            filename = re.sub(r'[\\/*?:"<>|]', "", filename)
+            
             filepath = os.path.join(self.download_dir, filename)
             
             downloaded = 0
@@ -156,14 +165,14 @@ class ProfessionalIDM:
                 while True:
                     if self.cancel_download:
                         raise Exception("Stopped by user")
-                    chunk = response.read(32768) # Download in 32KB chunks
+                    chunk = response.read(32768)
                     if not chunk:
                         break
                     f.write(chunk)
                     downloaded += len(chunk)
                     
                     now = time.time()
-                    if now - last_update > 0.3: # Update UI every 0.3 sec
+                    if now - last_update > 0.3:
                         last_update = now
                         elapsed = now - start_time
                         speed = downloaded / elapsed if elapsed > 0 else 0
