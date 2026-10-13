@@ -11,7 +11,6 @@ class ProfessionalIDM:
         self.root.title("My_DM - Professional Dashboard")
         self.root.geometry("950x600")
         
-        # Colors (Professional Dark Theme)
         self.bg_dark = "#1e1e1e"
         self.bg_panel = "#252526"
         self.bg_toolbar = "#333333"
@@ -28,25 +27,11 @@ class ProfessionalIDM:
     def setup_styles(self):
         style = ttk.Style()
         style.theme_use("clam")
-        
-        # Treeview (Table) Style
-        style.configure("Treeview", 
-                        background=self.bg_panel, 
-                        foreground="white", 
-                        rowheight=28,
-                        fieldbackground=self.bg_panel,
-                        bordercolor="#333333",
-                        borderwidth=0)
+        style.configure("Treeview", background=self.bg_panel, foreground="white", rowheight=28, fieldbackground=self.bg_panel, bordercolor="#333333", borderwidth=0)
         style.map('Treeview', background=[('selected', self.accent)])
-        
-        # Table Heading Style
-        style.configure("Treeview.Heading", 
-                        background=self.bg_toolbar, 
-                        foreground="white", 
-                        font=('Arial', 9, 'bold'))
+        style.configure("Treeview.Heading", background=self.bg_toolbar, foreground="white", font=('Arial', 9, 'bold'))
 
     def setup_ui(self):
-        # 1. Top Toolbar (Like IDM)
         toolbar = tk.Frame(self.root, bg=self.bg_toolbar, height=60)
         toolbar.pack(side="top", fill="x")
         
@@ -55,11 +40,9 @@ class ProfessionalIDM:
         tk.Button(toolbar, text="⏹ Stop / Pause", bg="#dc3545", fg="white", font=("Arial", 9, "bold"), relief="flat", padx=15, pady=8, command=self.stop_download).pack(side="left", padx=5)
         tk.Button(toolbar, text="📁 Change Folder", bg="#6c757d", fg="white", font=("Arial", 9, "bold"), relief="flat", padx=15, pady=8, command=self.browse_folder).pack(side="left", padx=5)
         
-        # 2. Main Content Area
         main_frame = tk.Frame(self.root, bg=self.bg_dark)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
-        # 3. Left Sidebar (Categories)
         sidebar = tk.Frame(main_frame, bg=self.bg_panel, width=160)
         sidebar.pack(side="left", fill="y", padx=(0, 10))
         
@@ -68,40 +51,30 @@ class ProfessionalIDM:
         tk.Button(sidebar, text="✅ Finished", bg=self.bg_panel, fg=self.fg_text, relief="flat", anchor="w", font=("Arial", 9)).pack(fill="x", padx=5, pady=2, ipady=3)
         tk.Button(sidebar, text="⏳ Queued", bg=self.bg_panel, fg=self.fg_text, relief="flat", anchor="w", font=("Arial", 9)).pack(fill="x", padx=5, pady=2, ipady=3)
         
-        # 4. Downloads Table (Treeview)
         columns = ("id", "file_name", "size", "status", "progress", "speed")
         self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
         
         self.tree.heading("id", text="ID")
         self.tree.column("id", width=40, anchor="center")
-        
         self.tree.heading("file_name", text="File Name / URL")
         self.tree.column("file_name", width=320)
-        
         self.tree.heading("size", text="Size")
         self.tree.column("size", width=80, anchor="center")
-        
         self.tree.heading("status", text="Status")
         self.tree.column("status", width=100, anchor="center")
-        
         self.tree.heading("progress", text="Progress")
         self.tree.column("progress", width=80, anchor="center")
-        
         self.tree.heading("speed", text="Transfer Rate")
         self.tree.column("speed", width=100, anchor="center")
-        
         self.tree.pack(side="left", fill="both", expand=True)
         
-        # Scrollbar for Table
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscroll=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         
-        # 5. Bottom Status Bar
         self.statusbar = tk.Label(self.root, text=f" Save Directory: {self.download_dir}  |  Status: Ready", anchor="w", bg=self.bg_toolbar, fg=self.fg_text, font=("Arial", 9), pady=5)
         self.statusbar.pack(side="bottom", fill="x")
         
-        # Internal Variables
         self.queue = []
         self.is_downloading = False
         self.cancel_download = False
@@ -150,13 +123,8 @@ class ProfessionalIDM:
                 speed = d.get('speed', 0)
                 speed_str = f"{speed / (1024*1024):.2f} MB/s" if speed else "N/A"
                 size_str = f"{total / (1024*1024):.2f} MB"
-                
-                filename = d.get('filename', 'Unknown')
-                short_name = os.path.basename(filename)
-                
-                # Update specific row in table
+                short_name = os.path.basename(d.get('filename', 'Unknown'))
                 self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], short_name, size_str, "Downloading", f"{percent:.1f}%", speed_str))
-                
         elif d['status'] == 'finished':
             self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], os.path.basename(d.get('filename', '')), "Unknown", "Processing...", "100%", "Done"))
 
@@ -170,7 +138,6 @@ class ProfessionalIDM:
             url = task['url']
             
             self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Connecting...", "0%", "-"))
-            self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: Downloading File ID {self.tree.item(item_id)['values'][0]}...")
             
             opts = {
                 'outtmpl': os.path.join(self.download_dir, '%(title)s.%(ext)s'),
@@ -181,10 +148,8 @@ class ProfessionalIDM:
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     ydl.download([url])
-                
                 self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], self.tree.item(item_id)['values'][1], self.tree.item(item_id)['values'][2], "Complete", "100%", "Done"))
                 self.queue.pop(0)
-                
             except Exception as e:
                 if str(e) == "Stopped by user":
                     self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Paused", "-", "-"))
@@ -195,8 +160,18 @@ class ProfessionalIDM:
         
         self.is_downloading = False
         if not self.cancel_download and not self.queue:
-            self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: All Queue Downloads Finished!")
-            messagebox.showinfo("Success", "All downloads are complete!")
+            has_error = False
+            for child in self.tree.get_children():
+                if self.tree.item(child)['values'][3] == "Error":
+                    has_error = True
+                    break
+            
+            if has_error:
+                self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: Processed with Errors")
+                messagebox.showwarning("Finished", "কিউ শেষ হয়েছে, তবে কিছু লিংক ডাউনলোডে এরর হয়েছে!")
+            else:
+                self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: All Downloads Finished")
+                messagebox.showinfo("Success", "সব ডাউনলোড সফলভাবে সম্পন্ন হয়েছে!")
 
     def start_queue(self):
         if not self.queue:
