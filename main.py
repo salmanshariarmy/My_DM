@@ -4,6 +4,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import yt_dlp
 import pyperclip
+import urllib.request
+from urllib.parse import urlparse
+import time
 
 class ProfessionalIDM:
     def __init__(self, root):
@@ -128,6 +131,55 @@ class ProfessionalIDM:
         elif d['status'] == 'finished':
             self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], os.path.basename(d.get('filename', '')), "Unknown", "Processing...", "100%", "Done"))
 
+    def download_direct_file(self, url, item_id):
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        with urllib.request.urlopen(req) as response:
+            file_size_str = response.getheader('Content-Length')
+            file_size = int(file_size_str) if file_size_str else 0
+            
+            # Try to get real filename from server
+            cd = response.getheader('Content-Disposition')
+            if cd and 'filename=' in cd:
+                filename = cd.split('filename=')[1].strip('"\'; ')
+            else:
+                filename = os.path.basename(urlparse(url).path)
+                if not filename or len(filename) > 50:
+                    filename = f"file_{item_id}_{int(time.time())}.dat"
+                    
+            filepath = os.path.join(self.download_dir, filename)
+            
+            downloaded = 0
+            start_time = time.time()
+            last_update = 0
+            
+            with open(filepath, 'wb') as f:
+                while True:
+                    if self.cancel_download:
+                        raise Exception("Stopped by user")
+                    chunk = response.read(32768) # Download in 32KB chunks
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    
+                    now = time.time()
+                    if now - last_update > 0.3: # Update UI every 0.3 sec
+                        last_update = now
+                        elapsed = now - start_time
+                        speed = downloaded / elapsed if elapsed > 0 else 0
+                        speed_str = f"{speed / (1024*1024):.2f} MB/s"
+                        
+                        if file_size > 0:
+                            percent = (downloaded / file_size) * 100
+                            size_str = f"{file_size / (1024*1024):.2f} MB"
+                            self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], filename, size_str, "Direct DL...", f"{percent:.1f}%", speed_str))
+                        else:
+                            size_str = f"{downloaded / (1024*1024):.2f} MB"
+                            self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], filename, size_str, "Direct DL...", "N/A", speed_str))
+
+            size_str_final = f"{file_size / (1024*1024):.2f} MB" if file_size > 0 else f"{downloaded / (1024*1024):.2f} MB"
+            self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], filename, size_str_final, "Complete", "100%", "Done"))
+
     def process_queue(self):
         self.is_downloading = True
         self.cancel_download = False
@@ -139,7 +191,6 @@ class ProfessionalIDM:
             
             self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Connecting...", "0%", "-"))
             
-            # Update: Added 'nocheckcertificate' to fix common connection issues
             opts = {
                 'outtmpl': os.path.join(self.download_dir, '%(title)s.%(ext)s'),
                 'progress_hooks': [lambda d: self.progress_hook(d, item_id)],
@@ -148,19 +199,29 @@ class ProfessionalIDM:
             }
             
             try:
+                # 1st Attempt: Download using yt-dlp (Best for Videos)
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     ydl.download([url])
                 self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], self.tree.item(item_id)['values'][1], self.tree.item(item_id)['values'][2], "Complete", "100%", "Done"))
                 self.queue.pop(0)
+                
             except Exception as e:
                 if str(e) == "Stopped by user":
                     self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Paused", "-", "-"))
                     break
                 else:
-                    self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Error", "-", "-"))
-                    self.queue.pop(0)
-                    # Update: Shows the actual error message to the user
-                    messagebox.showerror("Download Error", f"Failed to download:\n{url}\n\nReason:\n{str(e)}")
+                    # 2nd Attempt: Fallback to Direct HTTP Download (Best for Files)
+                    try:
+                        self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Switching to Direct DL...", "0%", "-"))
+                        self.download_direct_file(url, item_id)
+                        self.queue.pop(0)
+                    except Exception as direct_e:
+                        if str(direct_e) == "Stopped by user":
+                            self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Paused", "-", "-"))
+                            break
+                        self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Error", "-", "-"))
+                        self.queue.pop(0)
+                        messagebox.showerror("Download Failed", f"Failed to download the file.\n\nServer Error:\n{str(direct_e)}")
         
         self.is_downloading = False
         if not self.cancel_download and not self.queue:
@@ -172,10 +233,10 @@ class ProfessionalIDM:
             
             if has_error:
                 self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: Processed with Errors")
-                messagebox.showwarning("Finished", "কিউ শেষ হয়েছে, তবে কিছু লিংক ডাউনলোডে এরর হয়েছে!")
+                messagebox.showwarning("Finished", "Queue is finished, but some links encountered errors!")
             else:
                 self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: All Downloads Finished")
-                messagebox.showinfo("Success", "সব ডাউনলোড সফলভাবে সম্পন্ন হয়েছে!")
+                messagebox.showinfo("Success", "All downloads are complete!")
 
     def start_queue(self):
         if not self.queue:
