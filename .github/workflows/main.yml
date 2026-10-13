@@ -1,8 +1,7 @@
 name: Build Windows EXE
 
 on:
-  push:
-    branches: [ "main" ]
+  workflow_dispatch: # এই লাইনটির কারণেই ম্যানুয়ালি রান করা যাবে
 
 jobs:
   build:
