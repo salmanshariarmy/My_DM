@@ -1,128 +1,180 @@
 import os
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import yt_dlp
 import pyperclip
 
-class AdvancedIDM:
+class ProfessionalIDM:
     def __init__(self, root):
         self.root = root
-        self.root.title("My_DM - Advanced Manager")
-        self.root.geometry("650x550")
+        self.root.title("My_DM - Professional Dashboard")
+        self.root.geometry("950x600")
         
-        # Dark Mode Colors
-        self.bg_color = "#1e1e1e"
-        self.fg_color = "#e0e0e0"
-        self.root.configure(bg=self.bg_color)
-
+        # Colors (Professional Dark Theme)
+        self.bg_dark = "#1e1e1e"
+        self.bg_panel = "#252526"
+        self.bg_toolbar = "#333333"
+        self.fg_text = "#cccccc"
+        self.accent = "#007acc"
+        
+        self.root.configure(bg=self.bg_dark)
         self.download_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+        
+        self.setup_styles()
+        self.setup_ui()
+        self.check_clipboard()
+        
+    def setup_styles(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+        
+        # Treeview (Table) Style
+        style.configure("Treeview", 
+                        background=self.bg_panel, 
+                        foreground="white", 
+                        rowheight=28,
+                        fieldbackground=self.bg_panel,
+                        bordercolor="#333333",
+                        borderwidth=0)
+        style.map('Treeview', background=[('selected', self.accent)])
+        
+        # Table Heading Style
+        style.configure("Treeview.Heading", 
+                        background=self.bg_toolbar, 
+                        foreground="white", 
+                        font=('Arial', 9, 'bold'))
+
+    def setup_ui(self):
+        # 1. Top Toolbar (Like IDM)
+        toolbar = tk.Frame(self.root, bg=self.bg_toolbar, height=60)
+        toolbar.pack(side="top", fill="x")
+        
+        tk.Button(toolbar, text="➕ Add URL", bg="#4CAF50", fg="white", font=("Arial", 9, "bold"), relief="flat", padx=15, pady=8, command=self.add_url).pack(side="left", padx=10, pady=10)
+        tk.Button(toolbar, text="▶ Start Queue", bg="#007bff", fg="white", font=("Arial", 9, "bold"), relief="flat", padx=15, pady=8, command=self.start_queue).pack(side="left", padx=5)
+        tk.Button(toolbar, text="⏹ Stop / Pause", bg="#dc3545", fg="white", font=("Arial", 9, "bold"), relief="flat", padx=15, pady=8, command=self.stop_download).pack(side="left", padx=5)
+        tk.Button(toolbar, text="📁 Change Folder", bg="#6c757d", fg="white", font=("Arial", 9, "bold"), relief="flat", padx=15, pady=8, command=self.browse_folder).pack(side="left", padx=5)
+        
+        # 2. Main Content Area
+        main_frame = tk.Frame(self.root, bg=self.bg_dark)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # 3. Left Sidebar (Categories)
+        sidebar = tk.Frame(main_frame, bg=self.bg_panel, width=160)
+        sidebar.pack(side="left", fill="y", padx=(0, 10))
+        
+        tk.Label(sidebar, text="Categories", bg=self.bg_panel, fg="white", font=("Arial", 10, "bold")).pack(pady=15, anchor="w", padx=10)
+        tk.Button(sidebar, text="📂 All Downloads", bg=self.bg_panel, fg=self.fg_text, relief="flat", anchor="w", font=("Arial", 9)).pack(fill="x", padx=5, pady=2, ipady=3)
+        tk.Button(sidebar, text="✅ Finished", bg=self.bg_panel, fg=self.fg_text, relief="flat", anchor="w", font=("Arial", 9)).pack(fill="x", padx=5, pady=2, ipady=3)
+        tk.Button(sidebar, text="⏳ Queued", bg=self.bg_panel, fg=self.fg_text, relief="flat", anchor="w", font=("Arial", 9)).pack(fill="x", padx=5, pady=2, ipady=3)
+        
+        # 4. Downloads Table (Treeview)
+        columns = ("id", "file_name", "size", "status", "progress", "speed")
+        self.tree = ttk.Treeview(main_frame, columns=columns, show="headings")
+        
+        self.tree.heading("id", text="ID")
+        self.tree.column("id", width=40, anchor="center")
+        
+        self.tree.heading("file_name", text="File Name / URL")
+        self.tree.column("file_name", width=320)
+        
+        self.tree.heading("size", text="Size")
+        self.tree.column("size", width=80, anchor="center")
+        
+        self.tree.heading("status", text="Status")
+        self.tree.column("status", width=100, anchor="center")
+        
+        self.tree.heading("progress", text="Progress")
+        self.tree.column("progress", width=80, anchor="center")
+        
+        self.tree.heading("speed", text="Transfer Rate")
+        self.tree.column("speed", width=100, anchor="center")
+        
+        self.tree.pack(side="left", fill="both", expand=True)
+        
+        # Scrollbar for Table
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 5. Bottom Status Bar
+        self.statusbar = tk.Label(self.root, text=f" Save Directory: {self.download_dir}  |  Status: Ready", anchor="w", bg=self.bg_toolbar, fg=self.fg_text, font=("Arial", 9), pady=5)
+        self.statusbar.pack(side="bottom", fill="x")
+        
+        # Internal Variables
         self.queue = []
         self.is_downloading = False
         self.cancel_download = False
         self.last_clipboard = ""
-
-        self.setup_ui()
-        self.check_clipboard() # Start clipboard monitor
-
-    def setup_ui(self):
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure("TProgressbar", thickness=15, troughcolor='#333333', background='#28a745')
-
-        # Title & URL Entry
-        tk.Label(self.root, text="URL / Link:", font=("Arial", 11, "bold"), bg=self.bg_color, fg=self.fg_color).pack(anchor="w", padx=20, pady=(15, 5))
+        self.download_id = 1
         
-        url_frame = tk.Frame(self.root, bg=self.bg_color)
-        url_frame.pack(fill="x", padx=20)
-        self.entry_url = tk.Entry(url_frame, width=55, font=("Arial", 10), bg="#333", fg="white", insertbackground="white")
-        self.entry_url.pack(side="left", fill="x", expand=True, ipady=4)
-        
-        tk.Button(url_frame, text="Add to Queue", bg="#007bff", fg="white", command=self.add_to_queue).pack(side="right", padx=(10, 0))
-
-        # Queue Listbox
-        tk.Label(self.root, text="Download Queue:", font=("Arial", 10, "bold"), bg=self.bg_color, fg=self.fg_color).pack(anchor="w", padx=20, pady=(15, 5))
-        self.listbox_queue = tk.Listbox(self.root, height=6, bg="#2b2b2b", fg="#4CAF50", selectbackground="#555")
-        self.listbox_queue.pack(fill="x", padx=20)
-
-        # Directory Selection
-        dir_frame = tk.Frame(self.root, bg=self.bg_color)
-        dir_frame.pack(fill="x", padx=20, pady=15)
-        self.lbl_path = tk.Label(dir_frame, text=f"Save To: {self.download_dir}", font=("Arial", 9), bg=self.bg_color, fg="#aaa")
-        self.lbl_path.pack(side="left")
-        tk.Button(dir_frame, text="Change Folder", bg="#444", fg="white", command=self.browse_folder).pack(side="right")
-
-        # Progress and Status
-        self.progress_bar = ttk.Progressbar(self.root, orient="horizontal", mode="determinate", style="TProgressbar")
-        self.progress_bar.pack(fill="x", padx=20, pady=10)
-        
-        self.lbl_status = tk.Label(self.root, text="স্ট্যাটাস: Ready", font=("Arial", 9), bg=self.bg_color, fg=self.fg_color)
-        self.lbl_status.pack(padx=20, anchor="w")
-
-        # Action Buttons
-        btn_frame = tk.Frame(self.root, bg=self.bg_color)
-        btn_frame.pack(pady=20)
-        self.btn_start = tk.Button(btn_frame, text="Start Queue", bg="#28a745", fg="white", width=15, font=("Arial", 10, "bold"), command=self.start_queue_thread)
-        self.btn_start.pack(side="left", padx=10, ipady=3)
-        
-        self.btn_stop = tk.Button(btn_frame, text="Stop / Pause", bg="#dc3545", fg="white", width=15, font=("Arial", 10, "bold"), command=self.stop_download)
-        self.btn_stop.pack(side="left", padx=10, ipady=3)
-
-    def browse_folder(self):
-        selected_dir = filedialog.askdirectory(initialdir=self.download_dir)
-        if selected_dir:
-            self.download_dir = selected_dir
-            self.lbl_path.config(text=f"Save To: {self.download_dir}")
-
     def check_clipboard(self):
         try:
             clipboard_content = pyperclip.paste()
             if clipboard_content != self.last_clipboard and clipboard_content.startswith("http"):
                 self.last_clipboard = clipboard_content
-                self.entry_url.delete(0, tk.END)
-                self.entry_url.insert(0, clipboard_content)
+                self.prompt_add_url(clipboard_content)
         except:
             pass
-        self.root.after(1000, self.check_clipboard) # Check every 1 second
+        self.root.after(1500, self.check_clipboard)
 
-    def add_to_queue(self):
-        url = self.entry_url.get().strip()
-        if url and url not in self.queue:
-            self.queue.append(url)
-            self.listbox_queue.insert(tk.END, url)
-            self.entry_url.delete(0, tk.END)
+    def add_url(self):
+        self.prompt_add_url("")
+        
+    def prompt_add_url(self, default_url):
+        url = simpledialog.askstring("Add New Download", "Enter Download URL:", initialvalue=default_url, parent=self.root)
+        if url:
+            item_id = self.tree.insert("", "end", values=(self.download_id, url, "Unknown", "Queued", "0%", "-"))
+            self.queue.append({'item_id': item_id, 'url': url})
+            self.download_id += 1
 
+    def browse_folder(self):
+        selected_dir = filedialog.askdirectory(initialdir=self.download_dir)
+        if selected_dir:
+            self.download_dir = selected_dir
+            self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: Ready")
+            
     def stop_download(self):
         if self.is_downloading:
             self.cancel_download = True
-            self.lbl_status.config(text="Stopping... (Will resume next time)", fg="#ffc107")
+            self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: Stopping (Will pause)...")
 
-    def progress_hook(self, d):
+    def progress_hook(self, d, item_id):
         if self.cancel_download:
-            raise Exception("Download stopped by user.")
+            raise Exception("Stopped by user")
             
         if d['status'] == 'downloading':
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
             if total > 0:
                 percent = (d.get('downloaded_bytes', 0) / total) * 100
-                self.progress_bar['value'] = percent
                 speed = d.get('speed', 0)
                 speed_str = f"{speed / (1024*1024):.2f} MB/s" if speed else "N/A"
-                self.lbl_status.config(text=f"ডাউনলোড হচ্ছে: {percent:.1f}% | স্পিড: {speed_str}")
+                size_str = f"{total / (1024*1024):.2f} MB"
+                
+                filename = d.get('filename', 'Unknown')
+                short_name = os.path.basename(filename)
+                
+                # Update specific row in table
+                self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], short_name, size_str, "Downloading", f"{percent:.1f}%", speed_str))
+                
         elif d['status'] == 'finished':
-            self.lbl_status.config(text="ফাইল প্রসেসিং চলছে...", fg="#17a2b8")
+            self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], os.path.basename(d.get('filename', '')), "Unknown", "Processing...", "100%", "Done"))
 
     def process_queue(self):
         self.is_downloading = True
         self.cancel_download = False
-
+        
         while self.queue and not self.cancel_download:
-            url = self.queue[0]
-            self.lbl_status.config(text=f"ডাউনলোড শুরু হচ্ছে: {url[:30]}...", fg=self.fg_color)
+            task = self.queue[0]
+            item_id = task['item_id']
+            url = task['url']
+            
+            self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Connecting...", "0%", "-"))
+            self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: Downloading File ID {self.tree.item(item_id)['values'][0]}...")
             
             opts = {
                 'outtmpl': os.path.join(self.download_dir, '%(title)s.%(ext)s'),
-                'progress_hooks': [self.progress_hook],
+                'progress_hooks': [lambda d: self.progress_hook(d, item_id)],
                 'format': 'best'
             }
             
@@ -130,34 +182,29 @@ class AdvancedIDM:
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     ydl.download([url])
                 
-                # If successful, remove from queue
+                self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], self.tree.item(item_id)['values'][1], self.tree.item(item_id)['values'][2], "Complete", "100%", "Done"))
                 self.queue.pop(0)
-                self.listbox_queue.delete(0)
-                self.progress_bar['value'] = 0
                 
             except Exception as e:
-                if str(e) == "Download stopped by user.":
+                if str(e) == "Stopped by user":
+                    self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Paused", "-", "-"))
                     break
                 else:
-                    self.lbl_status.config(text=f"ত্রুটি: {str(e)[:50]}", fg="red")
+                    self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Error", "-", "-"))
                     self.queue.pop(0)
-                    self.listbox_queue.delete(0)
-
+        
         self.is_downloading = False
-        self.progress_bar['value'] = 0
-        if self.cancel_download:
-            self.lbl_status.config(text="ডাউনলোড পজ করা হয়েছে।", fg="#ffc107")
-        elif not self.queue:
-            self.lbl_status.config(text="কিউয়ের সব ডাউনলোড সম্পন্ন হয়েছে!", fg="#28a745")
-            messagebox.showinfo("Success", "সব ডাউনলোড কমপ্লিট!")
+        if not self.cancel_download and not self.queue:
+            self.statusbar.config(text=f" Save Directory: {self.download_dir}  |  Status: All Queue Downloads Finished!")
+            messagebox.showinfo("Success", "All downloads are complete!")
 
-    def start_queue_thread(self):
+    def start_queue(self):
         if not self.queue:
-            return messagebox.showwarning("Warning", "কিউতে কোনো লিংক নেই!")
+            return messagebox.showwarning("Warning", "Queue is empty!")
         if not self.is_downloading:
             threading.Thread(target=self.process_queue, daemon=True).start()
 
 if __name__ == "__main__":
     app_root = tk.Tk()
-    AdvancedIDM(app_root)
+    ProfessionalIDM(app_root)
     app_root.mainloop()
