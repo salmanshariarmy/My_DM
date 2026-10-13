@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import time
 import os
+import subprocess
 
 class DownloadProgressDialog(tk.Toplevel):
     def __init__(self, parent, item_id, filename, total_size, pause_callback, cancel_callback):
@@ -18,12 +19,10 @@ class DownloadProgressDialog(tk.Toplevel):
         self.lbl_status = tk.Label(self, text="Status: Receiving data...", bg="#333333", fg="white", font=("Arial", 10))
         self.lbl_status.pack(anchor="w", padx=20, pady=(20, 5))
         
-        # Fixed: Showing Total Size separately
         size_str = f"{total_size/(1024*1024):.2f} MB" if total_size > 0 else "Unknown"
         self.lbl_total = tk.Label(self, text=f"File size: {size_str}", bg="#333333", fg="white", font=("Arial", 10))
         self.lbl_total.pack(anchor="w", padx=20, pady=2)
         
-        # Fixed: Showing Downloaded amount with percentage
         self.lbl_downloaded = tk.Label(self, text="Downloaded: 0.00 MB", bg="#333333", fg="white", font=("Arial", 10))
         self.lbl_downloaded.pack(anchor="w", padx=20, pady=2)
         
@@ -38,7 +37,6 @@ class DownloadProgressDialog(tk.Toplevel):
         
         tk.Button(self, text="<< Hide details", bg="#555", fg="white").place(x=20, y=300)
         
-        # Fixed: Pause and Cancel buttons connected to engine
         tk.Button(self, text="Pause", bg="#555", fg="white", command=self.on_pause).place(x=380, y=300)
         tk.Button(self, text="Cancel", bg="#555", fg="white", command=self.on_cancel).place(x=450, y=300)
 
@@ -74,6 +72,7 @@ class IDM_UI:
         self.tasks = {}
         self.dialogs = {}
         self.item_counter = 1
+        self.current_filter = "All Downloads"
         
         self.setup_styles()
         self.setup_ui()
@@ -96,6 +95,7 @@ class IDM_UI:
             ("🛑", "Stop All", self.stop_all),
             ("❌", "Delete", self.delete_task),
             ("🧹", "Delete C...", self.delete_completed),
+            ("📂", "Open Folder", self.open_folder),
             ("⚙️", "Options", None),
             ("ℹ️", "Properties", self.show_properties)
         ]
@@ -111,8 +111,11 @@ class IDM_UI:
         
         tk.Label(sidebar, text="Categories", bg="#252526", fg="white", font=("Arial", 10, "bold")).pack(pady=10, anchor="w", padx=10)
         cats = ["All Downloads", "Compressed", "Documents", "Music", "Programs", "Video", "Finished", "Queues"]
+        
         for cat in cats:
-            tk.Label(sidebar, text=f"📁 {cat}", bg="#252526", fg="#ccc", font=("Arial", 9)).pack(anchor="w", padx=20, pady=5)
+            lbl = tk.Label(sidebar, text=f"📁 {cat}", bg="#252526", fg="#ccc", font=("Arial", 9), cursor="hand2")
+            lbl.pack(anchor="w", padx=20, pady=5)
+            lbl.bind("<Button-1>", lambda e, c=cat: self.apply_filter(c))
 
         cols = ("file", "size", "status", "time", "speed", "url")
         self.tree = ttk.Treeview(main_frame, columns=cols, show="headings")
@@ -123,6 +126,46 @@ class IDM_UI:
         self.tree.heading("speed", text="Transfer rate"); self.tree.column("speed", width=100, anchor="center")
         self.tree.heading("url", text="URL"); self.tree.column("url", width=250)
         self.tree.pack(side="left", fill="both", expand=True)
+        
+        # Double click to open file
+        self.tree.bind("<Double-1>", lambda e: self.open_folder())
+
+    # --- Filtering and Folder Logic ---
+    def apply_filter(self, category):
+        self.current_filter = category
+        for item in self.tree.get_children():
+            self.tree.detach(item)
+            
+        for item_id, task in self.tasks.items():
+            status = task.get('status_text', '')
+            cat_folder = self.engine.get_category_folder(task['filename'])
+            
+            show = False
+            if category == "All Downloads": show = True
+            elif category == "Finished" and status == "Complete": show = True
+            elif category == "Queues" and status != "Complete": show = True
+            elif category == cat_folder: show = True
+            
+            if show:
+                self.tree.reattach(item_id, "", "end")
+
+    def open_folder(self):
+        selected = self.tree.selection()
+        if not selected:
+            # Open base directory if nothing is selected
+            os.startfile(self.engine.base_dir) if os.name == 'nt' else subprocess.call(['xdg-open', self.engine.base_dir])
+            return
+            
+        item_id = selected[0]
+        task = self.tasks.get(item_id)
+        if task:
+            cat_folder = self.engine.get_category_folder(task['filename'])
+            folder_path = os.path.join(self.engine.base_dir, cat_folder)
+            if os.path.exists(folder_path):
+                if os.name == 'nt':
+                    os.startfile(folder_path)
+                else:
+                    subprocess.call(['xdg-open', folder_path])
 
     def add_new_url(self):
         import tkinter.simpledialog as sd
@@ -159,9 +202,9 @@ class IDM_UI:
             size_str = f"{size/(1024*1024):.2f} MB" if size > 0 else "Unknown"
             
             self.tree.insert("", "end", iid=item_id, values=(fname, size_str, "Connecting...", "-", "-", url))
-            self.tasks[item_id] = {'url': url, 'filename': fname, 'size': size}
+            self.tasks[item_id] = {'url': url, 'filename': fname, 'size': size, 'status_text': 'Connecting...'}
+            self.apply_filter(self.current_filter) # apply filter for new item
             
-            # Open Live Dialog with specific callbacks
             self.dialogs[item_id] = DownloadProgressDialog(
                 self.root, item_id, fname, size, 
                 self.pause_specific_task, self.cancel_specific_task
@@ -171,25 +214,32 @@ class IDM_UI:
             
         tk.Button(dlg, text="Start Download", bg="#007acc", fg="white", font=("Arial", 10, "bold"), padx=15, pady=5, command=start).pack(pady=30)
 
-    # --- New Callback Functions for Buttons ---
     def pause_specific_task(self, item_id):
         self.engine.pause_download(item_id)
         
     def cancel_specific_task(self, item_id):
         self.engine.pause_download(item_id)
-        self.tree.delete(item_id)
+        if self.tree.exists(item_id): self.tree.delete(item_id)
         if item_id in self.tasks: del self.tasks[item_id]
 
-    # --- Engine Callbacks ---
+    def update_task_status(self, item_id, status_text):
+        if item_id in self.tasks:
+            self.tasks[item_id]['status_text'] = status_text
+        if self.current_filter in ["Finished", "Queues"]:
+            self.apply_filter(self.current_filter)
+
     def progress_cb(self, item_id, downloaded, total, speed):
         try:
             percent = f"{(downloaded/total)*100:.1f}%" if total > 0 else "DL..."
             speed_str = f"{speed/(1024*1024):.2f} MB/s"
             
-            curr = list(self.tree.item(item_id, "values"))
-            curr[2] = percent
-            curr[4] = speed_str
-            self.tree.item(item_id, values=curr)
+            self.update_task_status(item_id, percent)
+            
+            if self.tree.exists(item_id):
+                curr = list(self.tree.item(item_id, "values"))
+                curr[2] = percent
+                curr[4] = speed_str
+                self.tree.item(item_id, values=curr)
             
             if item_id in self.dialogs and self.dialogs[item_id].winfo_exists():
                 self.dialogs[item_id].update_progress(downloaded, total, speed)
@@ -197,24 +247,28 @@ class IDM_UI:
 
     def finish_cb(self, item_id, filepath):
         try:
-            curr = list(self.tree.item(item_id, "values"))
-            curr[2] = "Complete"
-            curr[3] = "-"
-            curr[4] = "Done"
-            self.tree.item(item_id, values=curr)
+            self.update_task_status(item_id, "Complete")
+            if self.tree.exists(item_id):
+                curr = list(self.tree.item(item_id, "values"))
+                curr[2] = "Complete"
+                curr[3] = "-"
+                curr[4] = "Done"
+                self.tree.item(item_id, values=curr)
             if item_id in self.dialogs and self.dialogs[item_id].winfo_exists():
                 self.dialogs[item_id].destroy()
         except: pass
 
     def error_cb(self, item_id, err_msg):
         try:
-            curr = list(self.tree.item(item_id, "values"))
-            curr[2] = "Paused" if err_msg == "Paused" else "Error"
-            curr[4] = "-"
-            self.tree.item(item_id, values=curr)
+            status = "Paused" if err_msg == "Paused" else "Error"
+            self.update_task_status(item_id, status)
+            if self.tree.exists(item_id):
+                curr = list(self.tree.item(item_id, "values"))
+                curr[2] = status
+                curr[4] = "-"
+                self.tree.item(item_id, values=curr)
         except: pass
 
-    # --- Toolbar Actions ---
     def stop_task(self):
         for item_id in self.tree.selection():
             self.engine.pause_download(item_id)
@@ -227,8 +281,8 @@ class IDM_UI:
         for item_id in self.tree.selection():
             task = self.tasks.get(item_id)
             if task:
-                curr = list(self.tree.item(item_id, "values"))
-                if curr[2] in ["Paused", "Error"]:
+                status = task.get('status_text', '')
+                if status in ["Paused", "Error"]:
                     self.dialogs[item_id] = DownloadProgressDialog(
                         self.root, item_id, task['filename'], task['size'], 
                         self.pause_specific_task, self.cancel_specific_task
@@ -240,9 +294,10 @@ class IDM_UI:
             self.cancel_specific_task(item_id)
 
     def delete_completed(self):
-        for item_id in self.tree.get_children():
-            if self.tree.item(item_id)['values'][2] == "Complete":
-                self.tree.delete(item_id)
+        for item_id in list(self.tasks.keys()):
+            if self.tasks[item_id].get('status_text') == "Complete":
+                if self.tree.exists(item_id): self.tree.delete(item_id)
+                del self.tasks[item_id]
 
     def show_properties(self):
         selected = self.tree.selection()
