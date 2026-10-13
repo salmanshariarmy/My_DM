@@ -21,7 +21,6 @@ class DownloadEngine:
         return "General"
 
     def fetch_info(self, url):
-        # ১. ইউটিউব, ফেসবুক বা ভিডিও সাইট হলে yt-dlp দিয়ে আসল ফাইলের নাম ও সাইজ বের করবে
         if any(domain in url for domain in ['youtube.com', 'youtu.be', 'facebook.com', 'vimeo.com', 'tiktok.com']):
             try:
                 ydl_opts = {'quiet': True, 'noplaylist': True}
@@ -36,7 +35,6 @@ class DownloadEngine:
             except:
                 pass
                 
-        # ২. সাধারণ ডিরেক্ট লিংক হলে HTTP Request দিয়ে ইনফো নেবে
         try:
             req = urllib.request.Request(url, method='HEAD', headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as resp:
@@ -61,7 +59,7 @@ class DownloadEngine:
         filepath = os.path.join(save_dir, filename)
 
         def download_thread():
-            # ১. YouTube/Video সাইটের লিংক হলে yt-dlp দিয়ে ভিডিও ডাউনলোড করবে
+            # ১. YouTube/Video সাইটের লিংক
             if any(domain in url for domain in ['youtube.com', 'youtu.be', 'facebook.com', 'vimeo.com', 'tiktok.com']):
                 try:
                     def ytdl_hook(d):
@@ -88,10 +86,11 @@ class DownloadEngine:
                 except Exception as e:
                     if str(e) == "Paused":
                         error_callback(item_id, "Paused")
-                        return
-                    pass # Error হলে নিচের HTTP লজিকে ট্রাই করবে
+                    else:
+                        error_callback(item_id, f"YT Error: {str(e)}") # আসল এরর মেসেজ পাঠাবে
+                    return 
 
-            # ২. সাধারণ ফাইলের জন্য ডিরেক্ট HTTP Download (Resume সাপোর্টসহ)
+            # ২. সাধারণ ফাইলের জন্য ডিরেক্ট HTTP Download
             try:
                 existing_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
                 headers = {'User-Agent': 'Mozilla/5.0'}
