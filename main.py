@@ -139,10 +139,12 @@ class ProfessionalIDM:
             
             self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Connecting...", "0%", "-"))
             
+            # Update: Added 'nocheckcertificate' to fix common connection issues
             opts = {
                 'outtmpl': os.path.join(self.download_dir, '%(title)s.%(ext)s'),
                 'progress_hooks': [lambda d: self.progress_hook(d, item_id)],
-                'format': 'best'
+                'format': 'best',
+                'nocheckcertificate': True
             }
             
             try:
@@ -157,6 +159,8 @@ class ProfessionalIDM:
                 else:
                     self.tree.item(item_id, values=(self.tree.item(item_id)['values'][0], url, "-", "Error", "-", "-"))
                     self.queue.pop(0)
+                    # Update: Shows the actual error message to the user
+                    messagebox.showerror("Download Error", f"Failed to download:\n{url}\n\nReason:\n{str(e)}")
         
         self.is_downloading = False
         if not self.cancel_download and not self.queue:
