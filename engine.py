@@ -9,18 +9,34 @@ import re
 class DownloadEngine:
     def __init__(self, base_dir):
         self.base_dir = base_dir
-        self.active_downloads = {} # Tracks active threads and flags
+        self.active_downloads = {} 
 
     def get_category_folder(self, filename):
         ext = filename.split('.')[-1].lower() if '.' in filename else ''
         if ext in ['mp4', 'mkv', 'avi', 'mov', 'webm']: return "Video"
-        elif ext in ['mp3', 'wav', 'aac', 'flac']: return "Music"
+        elif ext in ['mp3', 'wav', 'aac', 'flac', 'm4a']: return "Music"
         elif ext in ['zip', 'rar', '7z', 'tar', 'gz']: return "Compressed"
         elif ext in ['pdf', 'doc', 'docx', 'txt', 'xlsx']: return "Documents"
         elif ext in ['exe', 'msi', 'apk']: return "Programs"
         return "General"
 
     def fetch_info(self, url):
+        # ১. ইউটিউব, ফেসবুক বা ভিডিও সাইট হলে yt-dlp দিয়ে আসল ফাইলের নাম ও সাইজ বের করবে
+        if any(domain in url for domain in ['youtube.com', 'youtu.be', 'facebook.com', 'vimeo.com', 'tiktok.com']):
+            try:
+                ydl_opts = {'quiet': True, 'noplaylist': True}
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    title = info.get('title', f"video_{int(time.time())}")
+                    ext = info.get('ext', 'mp4')
+                    filename = f"{title}.{ext}"
+                    filename = re.sub(r'[\\/*?:"<>|]', "", filename)
+                    size = info.get('filesize') or info.get('filesize_approx') or 0
+                    return filename, size
+            except:
+                pass
+                
+        # ২. সাধারণ ডিরেক্ট লিংক হলে HTTP Request দিয়ে ইনফো নেবে
         try:
             req = urllib.request.Request(url, method='HEAD', headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=5) as resp:
@@ -30,7 +46,7 @@ class DownloadEngine:
                 if cd and 'filename=' in cd:
                     fname = unquote(cd.split('filename=')[1].split(';')[0].strip(' "\''))
                 if not fname: fname = os.path.basename(urlparse(url).path)
-                if not fname: fname = f"download_{int(time.time())}.dat"
+                if not fname or fname == "watch": fname = f"file_{int(time.time())}.mp4"
                 fname = re.sub(r'[\\/*?:"<>|]', "", fname)
                 return fname, size
         except:
@@ -45,12 +61,42 @@ class DownloadEngine:
         filepath = os.path.join(save_dir, filename)
 
         def download_thread():
+            # ১. YouTube/Video সাইটের লিংক হলে yt-dlp দিয়ে ভিডিও ডাউনলোড করবে
+            if any(domain in url for domain in ['youtube.com', 'youtu.be', 'facebook.com', 'vimeo.com', 'tiktok.com']):
+                try:
+                    def ytdl_hook(d):
+                        if self.active_downloads.get(item_id, {}).get('cancel'):
+                            raise Exception("Paused")
+                        if d['status'] == 'downloading':
+                            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+                            downloaded = d.get('downloaded_bytes', 0)
+                            speed = d.get('speed', 0)
+                            progress_callback(item_id, downloaded, total, speed)
+
+                    opts = {
+                        'outtmpl': filepath,
+                        'progress_hooks': [ytdl_hook],
+                        'format': 'best',
+                        'nocheckcertificate': True,
+                        'continuedl': True,
+                        'quiet': True
+                    }
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        ydl.download([url])
+                    finish_callback(item_id, filepath)
+                    return
+                except Exception as e:
+                    if str(e) == "Paused":
+                        error_callback(item_id, "Paused")
+                        return
+                    pass # Error হলে নিচের HTTP লজিকে ট্রাই করবে
+
+            # ২. সাধারণ ফাইলের জন্য ডিরেক্ট HTTP Download (Resume সাপোর্টসহ)
             try:
                 existing_size = os.path.getsize(filepath) if os.path.exists(filepath) else 0
                 headers = {'User-Agent': 'Mozilla/5.0'}
                 open_mode = 'wb'
                 
-                # Setup Resume (Range header)
                 if existing_size > 0:
                     headers['Range'] = f'bytes={existing_size}-'
                     open_mode = 'ab'
