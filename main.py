@@ -5,14 +5,16 @@ from ui import IDM_UI
 
 if __name__ == "__main__":
     # Create Default Download Directory
-    default_dir = os.path.join(os.path.expanduser("~"), "Downloads", "My_DM_Downloads")
-    if not os.path.exists(default_dir):
-        os.makedirs(default_dir)
+    user_home = os.path.expanduser("~")
+    base_download_dir = os.path.join(user_home, "Downloads", "My_IDM_Downloads")
+    os.makedirs(base_download_dir, exist_ok=True)
 
     # Initialize Engine and UI
     root = tk.Tk()
     
-    dl_engine = DownloadEngine(download_dir=default_dir)
+    # Connect Engine with UI
+    dl_engine = DownloadEngine(base_dir=base_download_dir)
     app = IDM_UI(root=root, engine=dl_engine)
     
+    # Run App
     root.mainloop()
